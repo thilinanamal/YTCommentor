@@ -13,6 +13,21 @@ chrome.storage.local.get(['geminiApiKey'], function(result) {
 // Handle API key submission
 document.getElementById('submitApiKey').addEventListener('click', function() {
   const apiKey = document.getElementById('apiKey').value.trim();
+  handleApiKeySubmission(apiKey);
+});
+
+// Handle Change API Key button click
+document.getElementById('changeApiKey').addEventListener('click', function() {
+  // Show API key form and hide comment section
+  document.getElementById('apiKeyForm').style.display = 'block';
+  document.getElementById('commentSection').style.display = 'none';
+  
+  // Clear the API key input
+  document.getElementById('apiKey').value = '';
+  document.getElementById('apiKeyError').textContent = '';
+});
+
+function handleApiKeySubmission(apiKey) {
   const errorDiv = document.getElementById('apiKeyError');
   
   if (!apiKey) {
@@ -26,7 +41,7 @@ document.getElementById('submitApiKey').addEventListener('click', function() {
     document.getElementById('commentSection').style.display = 'block';
     requestVideoComment();
   });
-});
+}
 
 function requestVideoComment() {
   // First check if we're on a YouTube video page

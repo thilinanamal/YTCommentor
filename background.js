@@ -1,14 +1,22 @@
 // Listen for messages from the content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'fetchComment') {
+  if (message.action === 'fetchComment' || message.action === 'fetchReply') {
     const videoTitle = message.title;
+    const parentComment = message.parentComment; // Will be undefined for regular comments
 
     // Get the API key from storage
     chrome.storage.local.get(['geminiApiKey'], function(result) {
       if (!result.geminiApiKey) {
-        // If no API key is stored, send error message
         sendErrorToAllListeners('Please set your Gemini API key in the extension popup.');
         return;
+      }
+
+      // Prepare prompt based on whether this is a reply or new comment
+      let prompt;
+      if (message.action === 'fetchReply') {
+        prompt = `Generate a short, engaging reply (maximum 20 words) to the YouTube comment "${parentComment}" on a video titled "${videoTitle}". Be concise and natural. Provide ONLY the reply text.`;
+      } else {
+        prompt = `Generate a single, concise YouTube comment for the video titled "${videoTitle}". The comment should be natural and engaging. Provide ONLY the comment text, without any additional formatting, options, or explanations.`;
       }
 
       // Call the Google Gemini API to generate a comment
@@ -20,11 +28,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `Generate a single, concise YouTube comment for the video titled "${videoTitle}". The comment should be natural and engaging. Provide ONLY the comment text, without any additional formatting, options, or explanations.`
+              text: prompt
             }]
           }],
           generationConfig: {
-            maxOutputTokens: 100,
+            maxOutputTokens: message.action === 'fetchReply' ? 50 : 100, // Reduced tokens for replies
             temperature: 0.7
           }
         })
