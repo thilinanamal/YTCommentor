@@ -29,9 +29,21 @@ document.getElementById('submitApiKey').addEventListener('click', function() {
 });
 
 function requestVideoComment() {
-  // Request video title from active tab
+  // First check if we're on a YouTube video page
   chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+    if (!tabs[0]?.url?.includes('youtube.com/watch')) {
+      document.getElementById('comment').textContent = 'Please open a YouTube video to get comment suggestions.';
+      return;
+    }
+
     chrome.tabs.sendMessage(tabs[0].id, {action: "getVideoTitle"}, function(response) {
+      // Check for runtime.lastError to handle connection errors
+      if (chrome.runtime.lastError) {
+        console.error(chrome.runtime.lastError);
+        document.getElementById('comment').textContent = 'Unable to connect to the YouTube page. Please refresh the page and try again.';
+        return;
+      }
+
       if (response && response.title) {
         // Send the video title to background script for comment generation
         chrome.runtime.sendMessage({ 
@@ -39,7 +51,7 @@ function requestVideoComment() {
           title: response.title 
         });
       } else {
-        document.getElementById('comment').textContent = 'Please open a YouTube video to get comment suggestions.';
+        document.getElementById('comment').textContent = 'Could not find video title. Please make sure you are on a YouTube video page.';
       }
     });
   });
