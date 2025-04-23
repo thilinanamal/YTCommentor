@@ -6,6 +6,25 @@
     body {
       font-family: Arial, sans-serif;
       padding: 10px;
+      width: 300px;
+    }
+    #apiKeyForm, #commentSection {
+      margin-top: 10px;
+    }
+    #apiKey {
+      width: 100%;
+      padding: 8px;
+      margin: 8px 0;
+      box-sizing: border-box;
+    }
+    #submitApiKey {
+      background: #065fd4;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 18px;
+      cursor: pointer;
+      width: 100%;
     }
     #comment {
       margin-top: 10px;
@@ -14,11 +33,26 @@
       border-radius: 5px;
       background-color: #f9f9f9;
     }
+    .error {
+      color: red;
+      font-size: 12px;
+      margin-top: 5px;
+    }
   </style>
 </head>
 <body>
-  <h1>Suggested Comment</h1>
-  <div id="comment">Loading...</div>
+  <div id="apiKeyForm">
+    <h2>Enter Your Gemini API Key</h2>
+    <p>Please enter your Gemini API key to start using the extension:</p>
+    <input type="text" id="apiKey" placeholder="Enter your Gemini API key">
+    <button id="submitApiKey">Submit API Key</button>
+    <div id="apiKeyError" class="error"></div>
+  </div>
+
+  <div id="commentSection" style="display: none;">
+    <h2>Suggested Comment</h2>
+    <div id="comment">Loading...</div>
+  </div>
 
   <script src="popup.js"></script>
 </body>
