@@ -1,5 +1,14 @@
 import { BUTTON_STYLES, createButton, createDropdown, triggerInputEvents } from './utils.js';
 
+function isExtensionContextValid() {
+  try {
+    // Try to access chrome.runtime, which throws if context is invalid
+    return !!(chrome && chrome.runtime && chrome.runtime.id);
+  } catch {
+    return false;
+  }
+}
+
 export function getVideoTitle() {
   // Try to get title from entity-name first (most reliable)
   const entityTitle = document.querySelector('#entity-name')?.textContent?.trim();
@@ -161,7 +170,15 @@ function setupReplyMessageListener(container, dropdown, commentElement) {
   };
 
   container.messageListener = messageListener;
-  chrome.runtime.onMessage.addListener(messageListener);
+  
+  try {
+    if (isExtensionContextValid()) {
+      chrome.runtime.onMessage.addListener(messageListener);
+    }
+  } catch (error) {
+    console.error('Failed to set up message listener:', error);
+    dropdown.textContent = 'Extension context error. Please refresh the page.';
+  }
 
   container.querySelector('button').addEventListener('click', () => {
     const videoTitle = getVideoTitle();
@@ -171,11 +188,20 @@ function setupReplyMessageListener(container, dropdown, commentElement) {
       dropdown.style.display = 'block';
       dropdown.textContent = 'Loading suggestion...';
 
-      chrome.runtime.sendMessage({
-        action: 'fetchReply',
-        title: videoTitle,
-        parentComment: commentText
-      });
+      try {
+        if (isExtensionContextValid()) {
+          chrome.runtime.sendMessage({
+            action: 'fetchReply',
+            title: videoTitle,
+            parentComment: commentText
+          });
+        } else {
+          dropdown.textContent = 'Extension context error. Please refresh the page.';
+        }
+      } catch (error) {
+        console.error('Failed to send message:', error);
+        dropdown.textContent = 'Failed to get suggestion. Please refresh the page.';
+      }
     }
   });
 
