@@ -225,87 +225,50 @@ function addUseButton(dropdown, comment, commentElement) {
       // Wait for the reply box to appear and be editable
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Try to find the reply input within this specific comment's context
-      const textareaSelectors = [
-        'tp-yt-iron-autogrow-textarea',
-        'textarea.ytcp-commentbox',
-        'textarea#textarea',
-        '[slot="body"]',
-        'paper-input-input'
-      ];
+      // First try to find the iron-autogrow-textarea component
+      const ironTextarea = commentElement.querySelector('tp-yt-iron-autogrow-textarea') || 
+                          document.querySelector('tp-yt-iron-autogrow-textarea');
 
-      let replyInput = null;
-
-      // First try to find the input within this specific comment's context
-      const commentThread = commentElement.closest('ytcp-comment-thread') || 
-                          commentElement.closest('ytcp-comment-thread-renderer');
-      
-      if (commentThread) {
-        // Try each selector within this comment's thread
-        for (const selector of textareaSelectors) {
-          const elements = commentThread.querySelectorAll(selector);
-          replyInput = Array.from(elements).find(el => {
-            const isVisible = el.offsetParent !== null;
-            const isEditable = !el.disabled && !el.readOnly;
-            // Check if this input appeared after clicking reply (it's new)
-            const isNew = el.getBoundingClientRect().height > 0;
-            return isVisible && isEditable && isNew;
-          });
-          if (replyInput) break;
-        }
-
-        // If still not found, try searching in shadow roots within this comment thread
-        if (!replyInput) {
-          const shadowElements = commentThread.querySelectorAll('*');
-          for (const el of shadowElements) {
-            if (el.shadowRoot) {
-              for (const selector of textareaSelectors) {
-                const shadowInput = el.shadowRoot.querySelector(selector);
-                if (shadowInput && shadowInput.offsetParent !== null) {
-                  // Verify this is a newly appeared input
-                  const isNew = shadowInput.getBoundingClientRect().height > 0;
-                  if (isNew) {
-                    replyInput = shadowInput;
-                    break;
-                  }
-                }
-              }
-            }
-            if (replyInput) break;
-          }
-        }
-      }
-
-      if (replyInput) {
+      if (ironTextarea) {
         try {
-          // Set the value in multiple ways to ensure it works
-          replyInput.value = comment;
-          replyInput.textContent = comment;
-          replyInput.innerText = comment;
-          
-          // If it's an iron-autogrow-textarea, try to set its internal value
-          if (replyInput.tagName.toLowerCase() === 'tp-yt-iron-autogrow-textarea') {
-            const innerTextarea = replyInput.querySelector('textarea') || 
-                                replyInput.shadowRoot?.querySelector('textarea');
-            if (innerTextarea) {
-              innerTextarea.value = comment;
-              innerTextarea.textContent = comment;
-              triggerInputEvents(innerTextarea);
-            }
+          // Get the actual textarea from shadow root or as a child
+          let actualTextarea = ironTextarea.shadowRoot?.querySelector('textarea') || 
+                             ironTextarea.querySelector('textarea');
+
+          // If we didn't find it in the immediate shadow root, look deeper
+          if (!actualTextarea) {
+            ironTextarea.childNodes.forEach(node => {
+              if (node.shadowRoot) {
+                const textarea = node.shadowRoot.querySelector('textarea');
+                if (textarea) actualTextarea = textarea;
+              }
+            });
           }
 
-          // Trigger input events
-          triggerInputEvents(replyInput);
+          if (actualTextarea) {
+            // First focus and click to ensure the textarea is ready
+            actualTextarea.focus();
+            actualTextarea.click();
 
-          // Focus the input
-          replyInput.focus();
-          
-          // Additional event dispatch for YouTube Studio components
-          replyInput.dispatchEvent(new CustomEvent('bind-value-changed', { 
-            detail: { value: comment }, 
-            bubbles: true, 
-            composed: true 
-          }));
+            // Simulate real typing
+            actualTextarea.value = comment;
+            actualTextarea.textContent = comment;
+
+            // Create and dispatch necessary events
+            actualTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+            actualTextarea.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // Also update the iron-textarea's bind-value
+            ironTextarea.bindValue = comment;
+            ironTextarea.dispatchEvent(new CustomEvent('bind-value-changed', {
+              detail: { value: comment },
+              bubbles: true,
+              composed: true
+            }));
+
+            // Focus again to ensure cursor is in place
+            actualTextarea.focus();
+          }
         } catch (error) {
           console.error('Error setting reply text:', error);
         }
