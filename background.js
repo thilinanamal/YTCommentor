@@ -1,3 +1,70 @@
+// Helper function to safely send messages to tabs
+async function safelySendMessageToTab(tabId, message) {
+  try {
+    // Check if the tab still exists
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab) {
+      console.log('Tab no longer exists');
+      return false;
+    }
+
+    // Attempt to send the message
+    return await chrome.tabs.sendMessage(tabId, message).catch(error => {
+      console.log('Failed to send message to tab:', error);
+      return false;
+    });
+  } catch (error) {
+    console.log('Error checking tab:', error);
+    return false;
+  }
+}
+
+// Helper function to send comment to all listeners with error handling
+async function sendCommentToAllListeners(comment) {
+  try {
+    const tabs = await chrome.tabs.query({active: true, currentWindow: true});
+    const activeTab = tabs[0];
+    
+    if (activeTab) {
+      await safelySendMessageToTab(activeTab.id, {
+        action: 'commentGenerated',
+        comment: comment
+      });
+    }
+
+    // Also send to runtime (popup)
+    chrome.runtime.sendMessage({
+      action: 'commentGenerated',
+      comment: comment
+    }).catch(error => console.log('Error sending to runtime:', error));
+  } catch (error) {
+    console.error('Error in sendCommentToAllListeners:', error);
+  }
+}
+
+// Helper function to send error to all listeners with error handling
+async function sendErrorToAllListeners(errorMessage) {
+  try {
+    const tabs = await chrome.tabs.query({active: true, currentWindow: true});
+    const activeTab = tabs[0];
+    
+    if (activeTab) {
+      await safelySendMessageToTab(activeTab.id, {
+        action: 'commentGenerated',
+        comment: errorMessage
+      });
+    }
+
+    // Also send to runtime (popup)
+    chrome.runtime.sendMessage({
+      action: 'commentGenerated',
+      comment: errorMessage
+    }).catch(error => console.log('Error sending to runtime:', error));
+  } catch (error) {
+    console.error('Error in sendErrorToAllListeners:', error);
+  }
+}
+
 // Listen for messages from the content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'fetchComment' || message.action === 'fetchReply') {
@@ -32,7 +99,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }]
           }],
           generationConfig: {
-            maxOutputTokens: message.action === 'fetchReply' ? 50 : 100, // Reduced tokens for replies
+            maxOutputTokens: message.action === 'fetchReply' ? 50 : 100,
             temperature: 0.7
           }
         })
@@ -53,40 +120,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
         .catch(error => {
           console.error('Error fetching comment:', error);
-          sendErrorToAllListeners('Sorry, there was an error generating a comment.');
+          sendErrorToAllListeners('Sorry, there was an error generating a comment. Please try again.');
         });
     });
+
+    // Return true to indicate we'll send a response asynchronously
+    return true;
   }
 });
-
-// Helper function to send comment to all listeners
-function sendCommentToAllListeners(comment) {
-  chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-    if (tabs[0]) {
-      chrome.tabs.sendMessage(tabs[0].id, { 
-        action: 'commentGenerated', 
-        comment: comment 
-      });
-    }
-    chrome.runtime.sendMessage({ 
-      action: 'commentGenerated', 
-      comment: comment 
-    });
-  });
-}
-
-// Helper function to send error to all listeners
-function sendErrorToAllListeners(errorMessage) {
-  chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-    if (tabs[0]) {
-      chrome.tabs.sendMessage(tabs[0].id, { 
-        action: 'commentGenerated', 
-        comment: errorMessage 
-      });
-    }
-    chrome.runtime.sendMessage({ 
-      action: 'commentGenerated', 
-      comment: errorMessage 
-    });
-  });
-}

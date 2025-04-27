@@ -44,31 +44,58 @@ function handleApiKeySubmission(apiKey) {
 }
 
 function requestVideoComment() {
-  // First check if we're on a YouTube video page
   chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-    if (!tabs[0]?.url?.includes('youtube.com/watch')) {
-      document.getElementById('comment').textContent = 'Please open a YouTube video to get comment suggestions.';
+    if (!tabs[0]?.id) {
+      document.getElementById('comment').textContent = 'Unable to access the current tab.';
       return;
     }
 
-    chrome.tabs.sendMessage(tabs[0].id, {action: "getVideoTitle"}, function(response) {
-      // Check for runtime.lastError to handle connection errors
-      if (chrome.runtime.lastError) {
-        console.error(chrome.runtime.lastError);
-        document.getElementById('comment').textContent = 'Unable to connect to the YouTube page. Please refresh the page and try again.';
-        return;
-      }
+    const url = tabs[0].url || '';
+    const isYouTube = url.includes('youtube.com/watch');
+    const isYouTubeStudio = url.includes('studio.youtube.com/video/');
+    
+    if (!isYouTube && !isYouTubeStudio) {
+      document.getElementById('comment').textContent = 'Please open a YouTube video or YouTube Studio video page to get comment suggestions.';
+      return;
+    }
 
-      if (response && response.title) {
-        // Send the video title to background script for comment generation
-        chrome.runtime.sendMessage({ 
-          action: 'fetchComment', 
-          title: response.title 
+    // First check if content script is loaded
+    chrome.tabs.sendMessage(tabs[0].id, {action: "ping"}, function(response) {
+      if (chrome.runtime.lastError) {
+        // Content script not loaded, try to inject it
+        chrome.scripting.executeScript({
+          target: { tabId: tabs[0].id },
+          files: ['content.js']
+        }).then(() => {
+          // Now try to get the video title
+          requestTitle(tabs[0].id);
+        }).catch(error => {
+          document.getElementById('comment').textContent = 'Error loading extension. Please refresh the page and try again.';
         });
       } else {
-        document.getElementById('comment').textContent = 'Could not find video title. Please make sure you are on a YouTube video page.';
+        // Content script is loaded, proceed with getting title
+        requestTitle(tabs[0].id);
       }
     });
+  });
+}
+
+function requestTitle(tabId) {
+  chrome.tabs.sendMessage(tabId, {action: "getVideoTitle"}, function(response) {
+    if (chrome.runtime.lastError) {
+      document.getElementById('comment').textContent = 'Unable to connect to the page. Please refresh and try again.';
+      return;
+    }
+
+    if (response?.title) {
+      console.log('Found title:', response.title); // Debug log
+      chrome.runtime.sendMessage({ 
+        action: 'fetchComment', 
+        title: response.title 
+      });
+    } else {
+      document.getElementById('comment').textContent = 'Could not find video title. Elements checked: #entity-name and other selectors. Please make sure you are on a video page.';
+    }
   });
 }
 

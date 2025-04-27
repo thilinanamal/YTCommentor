@@ -11,10 +11,12 @@
   ],
   "host_permissions": [
     "https://www.youtube.com/*",
+    "https://studio.youtube.com/*",
     "https://gemini.googleapis.com/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup.html",
@@ -26,8 +28,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/watch?v=*"],
-      "js": ["content.js"]
+      "matches": [
+        "https://www.youtube.com/watch?v=*",
+        "https://studio.youtube.com/video/*",
+        "https://studio.youtube.com/video/*/comments*",
+        "https://studio.youtube.com/video/*/comments/inbox*"
+      ],
+      "js": ["content.js"],
+      "type": "module"
     }
-  ]
+  ],
+  "web_accessible_resources": [{
+    "resources": ["utils.js", "youtube.js", "youtubeStudio.js"],
+    "matches": [
+      "https://www.youtube.com/*", 
+      "https://studio.youtube.com/*"
+    ]
+  }]
 }
