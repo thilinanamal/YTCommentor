@@ -9,6 +9,17 @@ function isExtensionContextValid() {
   }
 }
 
+// ----------------------- youtubeStudio.js changes -----------------------
+
+  // Add this function to youtubeStudio.js
+  export function getVideoTranscript() {
+    // Studio doesn't have access to transcript, fall back to title
+    return new Promise(resolve => {
+      const title = getVideoTitle();
+      resolve(title ? `Video title: ${title}` : 'No transcript available');
+    });
+  }
+
 export function getVideoTitle() {
   // Try to get title from entity-name first (most reliable)
   const entityTitle = document.querySelector('#entity-name')?.textContent?.trim();

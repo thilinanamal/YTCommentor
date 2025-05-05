@@ -186,12 +186,30 @@ Promise.all([
 
   // Listen for video title requests from popup
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message.action === "getVideoTitle") {
-      const videoTitle = isYouTubeStudio() 
-        ? youtubeStudio.getVideoTitle()
-        : youtube.getVideoTitle();
-      sendResponse({ title: videoTitle });
-      return true; // Keep the message channel open for async response
+    if (message.action === "getVideoWithTranscript") {
+      const isYouTubeStudio = window.location.hostname === 'studio.youtube.com';
+      
+      // For YouTube Studio, just return the title since transcripts aren't accessible
+      if (isYouTubeStudio) {
+        const videoTitle = youtubeStudio?.getVideoTitle();
+        sendResponse({ 
+          title: videoTitle,
+          transcript: `Video title: ${videoTitle}`
+        });
+      } else {
+        // For regular YouTube, get the transcript
+        const videoTitle = youtube?.getVideoTitle();
+        
+        // Get transcript asynchronously
+        youtube?.getVideoTranscript().then(transcript => {
+          sendResponse({
+            title: videoTitle,
+            transcript: transcript || `Video title: ${videoTitle}`  // Fall back to title if transcript fails
+          });
+        });
+        
+        return true; // Keep the message channel open for async response
+      }
     }
   });
 

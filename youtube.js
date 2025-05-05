@@ -8,6 +8,167 @@ export function getCommentText(commentElement) {
   return commentElement.querySelector('#content-text')?.textContent;
 }
 
+
+// Add these transcript extraction functions to youtube.js
+export function getVideoTranscript() {
+  return new Promise(async (resolve) => {
+    try {
+      // First, check if we can get the transcript from the UI
+      const transcriptText = await getTranscriptFromUI();
+      if (transcriptText) {
+        console.log('Got transcript from UI');
+        resolve(transcriptText);
+        return;
+      }
+
+      // If UI method fails, try to get it from network data
+      const transcriptFromPlayer = await getTranscriptFromPlayerData();
+      if (transcriptFromPlayer) {
+        console.log('Got transcript from player data');
+        resolve(transcriptFromPlayer);
+        return;
+      }
+
+      // Final fallback - try to get it from the transcript button
+      const transcriptFromButton = await getTranscriptByClickingButton();
+      if (transcriptFromButton) {
+        console.log('Got transcript from button click');
+        resolve(transcriptFromButton);
+        return;
+      }
+
+      // If all methods fail, fall back to title
+      const title = getVideoTitle();
+      console.log('Failed to get transcript, falling back to title');
+      resolve(title ? `Video title: ${title}` : 'No transcript available');
+    } catch (error) {
+      console.error('Error getting transcript:', error);
+      const title = getVideoTitle();
+      resolve(title ? `Video title: ${title}` : 'No transcript available');
+    }
+  });
+}
+
+// Method 1: Try to extract transcript from UI if it's already open
+async function getTranscriptFromUI() {
+  // Look for transcript text in the UI
+  const transcriptRenderer = document.querySelector('ytd-transcript-segment-renderer');
+  if (transcriptRenderer) {
+    // If transcript panel is already open, read all segments
+    const segments = Array.from(document.querySelectorAll('ytd-transcript-segment-renderer'));
+    if (segments.length > 0) {
+      return segments
+        .map(segment => segment.textContent.trim())
+        .join(' ');
+    }
+  }
+  return null;
+}
+
+// Method 2: Extract transcript data from YouTube player
+async function getTranscriptFromPlayerData() {
+  try {
+    // Get video ID from URL
+    const videoId = new URLSearchParams(window.location.search).get('v');
+    if (!videoId) return null;
+
+    // Try to access YouTube's ytInitialPlayerResponse object
+    const ytInitialData = window.ytInitialPlayerResponse || 
+                         window.ytInitialData ||
+                         findInitialPlayerData();
+                         
+    if (!ytInitialData) return null;
+    
+    // Navigate through the complex structure to find captions data
+    let captionTracks = null;
+    
+    // Path 1: Direct path to captions
+    if (ytInitialData.captions && 
+        ytInitialData.captions.playerCaptionsTracklistRenderer &&
+        ytInitialData.captions.playerCaptionsTracklistRenderer.captionTracks) {
+      captionTracks = ytInitialData.captions.playerCaptionsTracklistRenderer.captionTracks;
+    }
+    
+    // Path 2: Alternative path to captions
+    if (!captionTracks && ytInitialData.player && ytInitialData.player.captions && 
+        ytInitialData.player.captions.playerCaptionsTracklistRenderer) {
+      captionTracks = ytInitialData.player.captions.playerCaptionsTracklistRenderer.captionTracks;
+    }
+    
+    if (!captionTracks) return null;
+    
+    // Find an English track, or use the first available one
+    const captionTrack = captionTracks.find(track => 
+      track.languageCode === 'en' || track.vssId?.includes('.en')
+    ) || captionTracks[0];
+    
+    if (!captionTrack || !captionTrack.baseUrl) return null;
+    
+    // Fetch the actual transcript data
+    const response = await fetch(`${captionTrack.baseUrl}&fmt=json3`);
+    const data = await response.json();
+    
+    if (data && data.events) {
+      // Extract text from transcript data
+      return data.events
+        .filter(event => event.segs)
+        .map(event => 
+          event.segs
+            .map(seg => seg.utf8)
+            .join('')
+        )
+        .join(' ')
+        .replace(/\\n/g, ' ')
+        .replace(/\s+/g, ' ');
+    }
+  } catch (error) {
+    console.error('Error in getTranscriptFromPlayerData:', error);
+  }
+  return null;
+}
+
+// Helper function to find ytInitialPlayerResponse in scripts
+function findInitialPlayerData() {
+  for (const script of document.querySelectorAll('script')) {
+    if (script.textContent.includes('ytInitialPlayerResponse')) {
+      const match = script.textContent.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+      if (match && match[1]) {
+        try {
+          return JSON.parse(match[1]);
+        } catch (e) {
+          console.error('Failed to parse ytInitialPlayerResponse:', e);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Method 3: Try to click the transcript button to open the panel
+async function getTranscriptByClickingButton() {
+  try {
+    // Look for the "Show transcript" button
+    const transcriptButton = Array.from(document.querySelectorAll('button'))
+      .find(button => button.textContent.toLowerCase().includes('transcript'));
+    
+    if (transcriptButton) {
+      // Click the button to open the transcript panel
+      transcriptButton.click();
+      
+      // Wait for transcript to load
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Now try to read the transcript
+      return await getTranscriptFromUI();
+    }
+  } catch (error) {
+    console.error('Error in getTranscriptByClickingButton:', error);
+  }
+  return null;
+}
+
+
+
 export function initializeSuggestionButton(commentField) {
   const buttonContainer = document.createElement('div');
   buttonContainer.style.cssText = 'position: relative; display: inline-block;';
@@ -83,39 +244,41 @@ function setupMessageListener(container, dropdown) {
 }
 
 function setupReplyMessageListener(container, dropdown, commentElement) {
-  const messageListener = (message) => {
-    if (message.action === 'commentGenerated') {
-      if (!message.comment) {
-        dropdown.textContent = 'Error getting suggestion. Please try again.';
-        return;
+    const messageListener = (message) => {
+      if (message.action === 'commentGenerated') {
+        if (!message.comment) {
+          dropdown.textContent = 'Error getting suggestion. Please try again.';
+          return;
+        }
+  
+        dropdown.textContent = message.comment;
+        addUseButton(dropdown, message.comment, commentElement);
       }
-
-      dropdown.textContent = message.comment;
-      addUseButton(dropdown, message.comment, commentElement);
-    }
-  };
-
-  container.messageListener = messageListener;
-  chrome.runtime.onMessage.addListener(messageListener);
-
-  container.querySelector('button').addEventListener('click', () => {
-    const videoTitle = getVideoTitle();
-    const commentText = getCommentText(commentElement);
-
-    if (videoTitle && commentText) {
-      dropdown.style.display = 'block';
-      dropdown.textContent = 'Loading suggestion...';
-
-      chrome.runtime.sendMessage({
-        action: 'fetchReply',
-        title: videoTitle,
-        parentComment: commentText
-      });
-    }
-  });
-
-  setupClickOutside(container, dropdown);
-}
+    };
+  
+    container.messageListener = messageListener;
+    chrome.runtime.onMessage.addListener(messageListener);
+  
+    container.querySelector('button').addEventListener('click', async () => {
+      const videoTitle = getVideoTitle();
+      const commentText = getCommentText(commentElement);
+      const transcript = await getVideoTranscript();
+  
+      if (videoTitle && commentText) {
+        dropdown.style.display = 'block';
+        dropdown.textContent = 'Loading suggestion...';
+  
+        chrome.runtime.sendMessage({
+          action: 'fetchReply',
+          title: videoTitle,
+          transcript: transcript,
+          parentComment: commentText
+        });
+      }
+    });
+  
+    setupClickOutside(container, dropdown);
+  }
 
 function handleCommentGenerated(message, dropdown, inputSelector, editableSelector) {
   if (!message.comment) {

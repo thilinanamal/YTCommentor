@@ -69,23 +69,25 @@ async function sendErrorToAllListeners(errorMessage) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'fetchComment' || message.action === 'fetchReply') {
     const videoTitle = message.title;
+    const videoTranscript = message.transcript; // New parameter
     const parentComment = message.parentComment; // Will be undefined for regular comments
-
+  
     // Get the API key from storage
     chrome.storage.local.get(['geminiApiKey'], function(result) {
       if (!result.geminiApiKey) {
         sendErrorToAllListeners('Please set your Gemini API key in the extension popup.');
         return;
       }
-
+  
       // Prepare prompt based on whether this is a reply or new comment
       let prompt;
       if (message.action === 'fetchReply') {
-        prompt = `Generate a short, engaging reply (maximum 20 words) to the YouTube comment "${parentComment}" on a video titled "${videoTitle}". Be concise and natural. Provide ONLY the reply text.`;
+        prompt = `Generate a engaging reply to the YouTube comment "${parentComment}" on a video with the following content: "${videoTranscript}". Be casual and natural. Provide ONLY the reply text.`;
       } else {
-        prompt = `Generate a single, concise YouTube comment for the video titled "${videoTitle}". The comment should be natural and engaging. Provide ONLY the comment text, without any additional formatting, options, or explanations.`;
+        // Use transcript if available, otherwise fall back to title
+        prompt = `Generate a single, engaging YouTube comment for a video with the following content: "${videoTranscript}". The comment should be natural and engaging. Provide ONLY the comment text, without any additional formatting, options, or explanations.`;
       }
-
+  
       // Call the Google Gemini API to generate a comment
       fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${result.geminiApiKey}`, {
         method: 'POST',
@@ -123,7 +125,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendErrorToAllListeners('Sorry, there was an error generating a comment. Please try again.');
         });
     });
-
+  
     // Return true to indicate we'll send a response asynchronously
     return true;
   }

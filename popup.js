@@ -67,13 +67,13 @@ function requestVideoComment() {
           target: { tabId: tabs[0].id },
           files: ['content.js']
         }).then(() => {
-          // Now try to get the video title
+          // Now try to get the video data
           requestTitle(tabs[0].id);
         }).catch(error => {
           document.getElementById('comment').textContent = 'Error loading extension. Please refresh the page and try again.';
         });
       } else {
-        // Content script is loaded, proceed with getting title
+        // Content script is loaded, proceed with getting data
         requestTitle(tabs[0].id);
       }
     });
@@ -81,20 +81,23 @@ function requestVideoComment() {
 }
 
 function requestTitle(tabId) {
-  chrome.tabs.sendMessage(tabId, {action: "getVideoTitle"}, function(response) {
+  chrome.tabs.sendMessage(tabId, {action: "getVideoWithTranscript"}, function(response) {
     if (chrome.runtime.lastError) {
       document.getElementById('comment').textContent = 'Unable to connect to the page. Please refresh and try again.';
       return;
     }
 
     if (response?.title) {
-      console.log('Found title:', response.title); // Debug log
+      console.log('Found title:', response.title); 
+      console.log('Found transcript:', response.transcript ? "yes" : "no");
+      
       chrome.runtime.sendMessage({ 
         action: 'fetchComment', 
-        title: response.title 
+        title: response.title,
+        transcript: response.transcript || response.title
       });
     } else {
-      document.getElementById('comment').textContent = 'Could not find video title. Elements checked: #entity-name and other selectors. Please make sure you are on a video page.';
+      document.getElementById('comment').textContent = 'Could not find video data. Please make sure you are on a video page.';
     }
   });
 }
