@@ -180,15 +180,19 @@ export function initializeSuggestionButton(commentField) {
   buttonContainer.appendChild(dropdownContent);
   commentField.parentElement.insertBefore(buttonContainer, commentField.nextSibling);
 
-  suggestButton.addEventListener('click', () => {
+  suggestButton.addEventListener('click', async () => {
     const videoTitle = getVideoTitle();
     if (videoTitle) {
       dropdownContent.style.display = 'block';
       dropdownContent.textContent = 'Loading suggestion...';
 
+      // Get transcript data for better context
+      const transcript = await getVideoTranscript();
+
       chrome.runtime.sendMessage({ 
         action: 'fetchComment', 
-        title: videoTitle 
+        title: videoTitle,
+        transcript: transcript || videoTitle
       });
     } else {
       dropdownContent.textContent = 'Could not find video title. Please try again.';
