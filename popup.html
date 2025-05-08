@@ -8,10 +8,10 @@
       padding: 10px;
       width: 300px;
     }
-    #apiKeyForm, #commentSection {
+    #authForm, #apiKeyForm, #commentSection {
       margin-top: 10px;
     }
-    #apiKey {
+    #email, #password, #confirmPassword, #apiKey {
       width: 100%;
       padding: 8px;
       margin: 8px 0;
@@ -53,7 +53,17 @@
   </style>
 </head>
 <body>
-  <div id="apiKeyForm">
+  <div id="authForm">
+    <h2 id="authTitle">Login</h2>
+    <input type="email" id="email" placeholder="Email" required>
+    <input type="password" id="password" placeholder="Password" required>
+    <input type="password" id="confirmPassword" placeholder="Confirm Password" style="display: none;" required>
+    <button id="authButton">Login</button>
+    <div id="authError" class="error"></div>
+    <button id="toggleAuthModeButton" style="background: none; border: none; color: #065fd4; cursor: pointer; padding: 10px 0; font-size: 14px; width: 100%; text-align: center;">Need an account? Sign Up</button>
+  </div>
+
+  <div id="apiKeyForm" style="display: none;">
     <h2>Enter Your Gemini API Key</h2>
     <p>Please enter your Gemini API key to start using the extension:</p>
     <input type="text" id="apiKey" placeholder="Enter your Gemini API key">
@@ -67,6 +77,9 @@
     <button id="changeApiKey">Change API Key</button>
   </div>
 
-  <script src="popup.js"></script>
+  <button id="logoutButton" style="display: none; margin-top: 10px;">Logout</button>
+
+  <script src="./lib/supabase.umd.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

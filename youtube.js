@@ -102,11 +102,26 @@ async function getTranscriptFromPlayerData() {
       track.languageCode === 'en' || track.vssId?.includes('.en')
     ) || captionTracks[0];
     
-    if (!captionTrack || !captionTrack.baseUrl) return null;
+    if (!captionTrack || !captionTrack.baseUrl) {
+      console.log('No valid caption track or baseUrl found in getTranscriptFromPlayerData.');
+      return null;
+    }
     
-    // Fetch the actual transcript data
-    const response = await fetch(`${captionTrack.baseUrl}&fmt=json3`);
-    const data = await response.json();
+    const transcriptUrl = `${captionTrack.baseUrl}&fmt=json3`;
+    const response = await fetch(transcriptUrl);
+
+    if (!response.ok) {
+      console.error(`Failed to fetch transcript. URL: ${transcriptUrl}, Status: ${response.status} ${response.statusText}`);
+      return null;
+    }
+
+    const textData = await response.text();
+    if (!textData) {
+      console.error(`Empty response body from transcript URL: ${transcriptUrl}`);
+      return null;
+    }
+    
+    const data = JSON.parse(textData); // Explicitly parse after getting text
     
     if (data && data.events) {
       // Extract text from transcript data
@@ -118,11 +133,19 @@ async function getTranscriptFromPlayerData() {
             .join('')
         )
         .join(' ')
-        .replace(/\\n/g, ' ')
-        .replace(/\s+/g, ' ');
+        .replace(/\\n/g, ' ') // Replace literal \n
+        .replace(/\s+/g, ' '); // Condense multiple spaces
+    } else {
+      console.log('Parsed transcript data does not contain events property or is null.');
+      return null;
     }
   } catch (error) {
-    console.error('Error in getTranscriptFromPlayerData:', error);
+    // Log additional context if available
+    let errorContext = '';
+    if (typeof transcriptUrl !== 'undefined') errorContext += ` URL: ${transcriptUrl}`;
+    // Avoid logging potentially very large textData directly, but maybe its start
+    // if (typeof textData !== 'undefined') errorContext += ` | Received text (start): ${textData.substring(0, 100)}`;
+    console.error(`Error in getTranscriptFromPlayerData:${errorContext}`, error);
   }
   return null;
 }

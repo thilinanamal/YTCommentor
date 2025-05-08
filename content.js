@@ -1,5 +1,4 @@
 // Get the chrome extension URL for our module files
-const extensionUrl = chrome.runtime.getURL('');
 
 // Add ping message handler at the top level
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
