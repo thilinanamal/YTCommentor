@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient.js';
+import { getSupabase } from './supabaseClient.js';
 
 // DOM Elements
 const authForm = document.getElementById('authForm');
@@ -68,6 +68,13 @@ function updateAuthFormUI() {
 
 // --- Authentication ---
 async function checkSession() {
+  const supabase = await getSupabase();
+  if (!supabase) {
+    console.error('Supabase client is not initialized.');
+    authErrorDiv.textContent = 'Error initializing. Please try again.';
+    showAuthForm();
+    return;
+  }
   const { data: { session }, error } = await supabase.auth.getSession();
   if (error) {
     console.error('Error getting session:', error.message);
@@ -92,6 +99,11 @@ if (toggleAuthModeButton) {
 
 if (authButton) {
     authButton.addEventListener('click', async () => {
+      const supabase = await getSupabase();
+      if (!supabase) {
+        authErrorDiv.textContent = 'Error initializing. Please try again.';
+        return;
+      }
       const email = emailInput.value.trim();
       const password = passwordInput.value.trim();
       authErrorDiv.textContent = '';
@@ -144,6 +156,11 @@ if (authButton) {
 
 if (logoutButton) {
     logoutButton.addEventListener('click', async () => {
+      const supabase = await getSupabase();
+      if (!supabase) {
+        authErrorDiv.textContent = 'Error initializing. Please try again.';
+        return;
+      }
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error('Error signing out:', error.message);

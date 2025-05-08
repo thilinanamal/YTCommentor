@@ -65,9 +65,67 @@ async function sendErrorToAllListeners(errorMessage) {
   }
 }
 
+let supabaseConfig = null;
+
+async function loadSupabaseConfig() {
+  try {
+    const response = await fetch(chrome.runtime.getURL('.env'));
+    if (!response.ok) {
+      console.error('Failed to fetch .env file:', response.statusText);
+      return;
+    }
+    const text = await response.text();
+    const lines = text.split('\n');
+    const config = {};
+    lines.forEach(line => {
+      const parts = line.split('=');
+      if (parts.length === 2) {
+        let key = parts[0].trim();
+        const value = parts[1].trim().replace(/;$/, ''); // Remove trailing semicolon
+        
+        // Remove "const " prefix if it exists
+        if (key.startsWith('const ')) {
+          key = key.substring(6).trim();
+        }
+
+        if (key === 'supabaseUrl' || key === 'SUPABASE_URL') {
+          config.url = value;
+        } else if (key === 'supabaseAnonKey' || key === 'SUPABASE_ANON_KEY') {
+          config.anonKey = value;
+        }
+      }
+    });
+    if (config.url && config.anonKey) {
+      supabaseConfig = config;
+      console.log('Supabase config loaded:', supabaseConfig);
+    } else {
+      console.error('Supabase URL or Anon Key not found in .env file');
+    }
+  } catch (error) {
+    console.error('Error loading Supabase config:', error);
+  }
+}
+
+// Load config on startup
+loadSupabaseConfig();
+
 // Listen for messages from the content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'fetchComment' || message.action === 'fetchReply') {
+  if (message.action === 'getSupabaseConfig') {
+    if (supabaseConfig) {
+      sendResponse(supabaseConfig);
+    } else {
+      // If config isn't loaded yet, try loading again and then respond
+      loadSupabaseConfig().then(() => {
+        if (supabaseConfig) {
+          sendResponse(supabaseConfig);
+        } else {
+          sendResponse({ error: "Supabase config not available." });
+        }
+      });
+    }
+    return true; // Indicates that the response is sent asynchronously
+  } else if (message.action === 'fetchComment' || message.action === 'fetchReply') {
     const videoTitle = message.title;
     const videoTranscript = message.transcript; // New parameter
     const parentComment = message.parentComment; // Will be undefined for regular comments

@@ -44,10 +44,11 @@
     }
   ],
   "web_accessible_resources": [{
-    "resources": ["utils.js", "youtube.js", "youtubeStudio.js"],
+    "resources": ["utils.js", "youtube.js", "youtubeStudio.js", ".env"],
     "matches": [
       "https://www.youtube.com/*", 
-      "https://studio.youtube.com/*"
+      "https://studio.youtube.com/*",
+      "<all_urls>"
     ]
   }]
 }
