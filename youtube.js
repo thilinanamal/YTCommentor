@@ -212,11 +212,16 @@ export function initializeSuggestionButton(commentField) {
       // Get transcript data for better context
       const transcript = await getVideoTranscript();
 
-      chrome.runtime.sendMessage({ 
-        action: 'fetchComment', 
-        title: videoTitle,
-        transcript: transcript || videoTitle
-      });
+      if (chrome.runtime?.id) { // Check if context is still valid
+        chrome.runtime.sendMessage({
+          action: 'fetchComment',
+          title: videoTitle,
+          transcript: transcript || videoTitle
+        });
+      } else {
+        console.warn('Extension context invalidated, not sending message for fetchComment.');
+        dropdownContent.textContent = 'Error: Extension context lost. Please refresh.';
+      }
     } else {
       dropdownContent.textContent = 'Could not find video title. Please try again.';
     }
@@ -294,13 +299,18 @@ function setupReplyMessageListener(container, dropdown, commentElement) {
       if (videoTitle && commentText) {
         dropdown.style.display = 'block';
         dropdown.textContent = 'Loading suggestion...';
-  
-        chrome.runtime.sendMessage({
-          action: 'fetchReply',
-          title: videoTitle,
-          transcript: transcript,
-          parentComment: commentText
-        });
+
+        if (chrome.runtime?.id) { // Check if context is still valid
+          chrome.runtime.sendMessage({
+            action: 'fetchReply',
+            title: videoTitle,
+            transcript: transcript,
+            parentComment: commentText
+          });
+        } else {
+          console.warn('Extension context invalidated, not sending message for fetchReply.');
+          dropdown.textContent = 'Error: Extension context lost. Please refresh.';
+        }
       }
     });
   

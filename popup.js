@@ -18,12 +18,26 @@ const submitApiKeyButton = document.getElementById('submitApiKey');
 const changeApiKeyButton = document.getElementById('changeApiKey');
 const apiKeyErrorDiv = document.getElementById('apiKeyError');
 const commentDiv = document.getElementById('comment');
+const loadingIndicator = document.getElementById('loadingIndicator');
 
 let isLoginMode = true;
 
 // --- UI Update Functions ---
+function showLoading() {
+  if (loadingIndicator) loadingIndicator.style.display = 'block';
+  if (authForm) authForm.style.display = 'none';
+  if (apiKeyForm) apiKeyForm.style.display = 'none';
+  if (commentSection) commentSection.style.display = 'none';
+  if (logoutButton) logoutButton.style.display = 'none';
+}
+
+function hideLoading() {
+  if (loadingIndicator) loadingIndicator.style.display = 'none';
+}
+
 function showAuthForm() {
-  authForm.style.display = 'block';
+  hideLoading();
+  if (authForm) authForm.style.display = 'block';
   apiKeyForm.style.display = 'none';
   commentSection.style.display = 'none';
   logoutButton.style.display = 'none';
@@ -31,21 +45,23 @@ function showAuthForm() {
 }
 
 function showAppContent() {
-  authForm.style.display = 'none';
+  hideLoading();
+  if (authForm) authForm.style.display = 'none';
   chrome.storage.local.get(['geminiApiKey'], function(result) {
     if (result.geminiApiKey) {
-      apiKeyForm.style.display = 'none';
-      commentSection.style.display = 'block';
+      if (apiKeyForm) apiKeyForm.style.display = 'none';
+      if (commentSection) commentSection.style.display = 'block';
       requestVideoComment();
     } else {
-      apiKeyForm.style.display = 'block';
-      commentSection.style.display = 'none';
+      if (apiKeyForm) apiKeyForm.style.display = 'block';
+      if (commentSection) commentSection.style.display = 'none';
     }
   });
-  logoutButton.style.display = 'block';
+  if (logoutButton) logoutButton.style.display = 'block';
 }
 
 function updateAuthFormUI() {
+  // This function is called by showAuthForm, which already hides loading.
   authErrorDiv.textContent = ''; // Clear previous errors
   if (isLoginMode) {
     authTitle.textContent = 'Login';
@@ -83,7 +99,26 @@ async function checkSession() {
   }
   if (session) {
     console.log('User is logged in:', session.user.email);
-    showAppContent();
+    // Attempt to load API key from Supabase
+    const { data: apiKeyData, error: apiKeyError } = await supabase
+      .from('user_api_keys')
+      .select('gemini_api_key')
+      .eq('email', session.user.email)
+      .single();
+
+    if (apiKeyData && apiKeyData.gemini_api_key) {
+      chrome.storage.local.set({ geminiApiKey: apiKeyData.gemini_api_key }, () => {
+        console.log('API Key loaded from Supabase and saved to local storage.');
+        showAppContent();
+      });
+    } else {
+      if (apiKeyError && apiKeyError.code !== 'PGRST116') { // PGRST116: no rows found
+        console.error('Error fetching API key from Supabase during checkSession:', apiKeyError.message, apiKeyError);
+      } else {
+        console.log('No API key found in Supabase for this user during checkSession.');
+      }
+      showAppContent(); // Show app content, will prompt for API key if not found
+    }
   } else {
     console.log('User is not logged in.');
     showAuthForm();
@@ -122,7 +157,26 @@ if (authButton) {
         }
         if (data.user) {
           console.log('Login successful:', data.user.email);
-          showAppContent();
+          // Attempt to load API key from Supabase after login
+          const { data: apiKeyData, error: apiKeyError } = await supabase
+            .from('user_api_keys')
+            .select('gemini_api_key')
+            .eq('email', data.user.email)
+            .single();
+
+          if (apiKeyData && apiKeyData.gemini_api_key) {
+            chrome.storage.local.set({ geminiApiKey: apiKeyData.gemini_api_key }, () => {
+              console.log('API Key loaded from Supabase and saved to local storage after login.');
+              showAppContent();
+            });
+          } else {
+            if (apiKeyError && apiKeyError.code !== 'PGRST116') {
+              console.error('Error fetching API key from Supabase after login:', apiKeyError.message, apiKeyError);
+            } else {
+                console.log('No API key found in Supabase for this user after login.');
+            }
+            showAppContent(); // Show app content, will prompt for API key if not found
+          }
         }
       } else {
         // Sign Up
@@ -194,13 +248,48 @@ if (changeApiKeyButton) {
     });
 }
 
-function handleApiKeySubmission(apiKey) {
+async function handleApiKeySubmission(apiKey) {
   apiKeyErrorDiv.textContent = '';
   if (!apiKey) {
     apiKeyErrorDiv.textContent = 'Please enter an API key';
     return;
   }
+
+  const supabase = await getSupabase();
+  if (!supabase) {
+    apiKeyErrorDiv.textContent = 'Error initializing. Please try again.';
+    return;
+  }
+
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError || !session) {
+    apiKeyErrorDiv.textContent = 'You must be logged in to save an API key.';
+    console.error('Error getting session or no session:', sessionError);
+    return;
+  }
+
+  const userEmail = session.user.email;
+
+  // Save to Supabase
+  const { error: upsertError } = await supabase
+    .from('user_api_keys')
+    .upsert({ email: userEmail, gemini_api_key: apiKey }, { onConflict: 'email' });
+
+  if (upsertError) {
+    console.error('Error saving API key to Supabase:', upsertError.message, upsertError);
+    apiKeyErrorDiv.textContent = 'Failed to save API key to cloud. Please try again.';
+    return;
+  }
+
+  console.log('API key saved to Supabase for user:', userEmail);
+
+  // Save to local storage and update UI
   chrome.storage.local.set({ geminiApiKey: apiKey }, function() {
+    if (chrome.runtime.lastError) {
+        console.error("Error saving API key to local storage:", chrome.runtime.lastError.message);
+        apiKeyErrorDiv.textContent = 'Failed to save API key locally. Please try again.';
+        return;
+    }
     apiKeyForm.style.display = 'none';
     commentSection.style.display = 'block';
     requestVideoComment();
@@ -268,8 +357,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; 
 });
 
+async function initializeApp() {
+    showLoading(); // Show loading indicator initially
+    const supabase = await getSupabase();
+    if (supabase) {
+        supabase.auth.onAuthStateChange((event, session) => {
+            console.log('Auth state changed:', event, session);
+            if (event === 'SIGNED_OUT') {
+                chrome.storage.local.remove('geminiApiKey', () => {
+                    console.log('Gemini API key removed from local storage on sign out.');
+                    showAuthForm();
+                });
+            } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
+                checkSession(); // Re-check session and API key status
+            } else if (event === 'USER_DELETED' || event === 'USER_UPDATED') {
+                 checkSession();
+            }
+        });
+    }
+    // Initial check
+    checkSession();
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    checkSession();
-    updateAuthFormUI(); // Initial UI setup for auth form
+    initializeApp();
 });

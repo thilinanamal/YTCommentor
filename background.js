@@ -133,10 +133,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Get the API key from storage
     chrome.storage.local.get(['geminiApiKey'], function(result) {
       if (!result.geminiApiKey) {
+        console.error('Gemini API key not found in local storage.');
         sendErrorToAllListeners('Please set your Gemini API key in the extension popup.');
         return;
       }
-  
+      
+      const apiKey = result.geminiApiKey;
+      console.log(`Using Gemini API Key (first 5 chars): ${apiKey.substring(0, 5)}...`);
+
       // Prepare prompt based on whether this is a reply or new comment
       let prompt;
       if (message.action === 'fetchReply') {
@@ -147,7 +151,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
   
       // Call the Google Gemini API to generate a comment
-      fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${result.geminiApiKey}`, {
+      fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

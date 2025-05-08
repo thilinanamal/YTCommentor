@@ -96,10 +96,15 @@ export function initializeSuggestionButton(commentField) {
       dropdownContent.style.display = 'block';
       dropdownContent.textContent = 'Loading suggestion...';
 
-      chrome.runtime.sendMessage({ 
-        action: 'fetchComment', 
-        title: videoTitle 
-      });
+      if (chrome.runtime?.id) { // Check if context is still valid
+        chrome.runtime.sendMessage({
+          action: 'fetchComment',
+          title: videoTitle
+        });
+      } else {
+        console.warn('Extension context invalidated, not sending message for fetchComment in Studio.');
+        dropdownContent.textContent = 'Error: Extension context lost. Please refresh.';
+      }
     } else {
       dropdownContent.textContent = 'Could not find video title. Please try again.';
     }
@@ -181,14 +186,11 @@ function setupReplyMessageListener(container, dropdown, commentElement) {
   };
 
   container.messageListener = messageListener;
-  
-  try {
-    if (isExtensionContextValid()) {
-      chrome.runtime.onMessage.addListener(messageListener);
-    }
-  } catch (error) {
-    console.error('Failed to set up message listener:', error);
-    dropdown.textContent = 'Extension context error. Please refresh the page.';
+
+  if (chrome.runtime?.id) {
+    chrome.runtime.onMessage.addListener(messageListener);
+  } else {
+    console.warn('Extension context invalidated, not adding message listener for Studio reply.');
   }
 
   container.querySelector('button').addEventListener('click', () => {
@@ -199,19 +201,15 @@ function setupReplyMessageListener(container, dropdown, commentElement) {
       dropdown.style.display = 'block';
       dropdown.textContent = 'Loading suggestion...';
 
-      try {
-        if (isExtensionContextValid()) {
-          chrome.runtime.sendMessage({
-            action: 'fetchReply',
-            title: videoTitle,
-            parentComment: commentText
-          });
-        } else {
-          dropdown.textContent = 'Extension context error. Please refresh the page.';
-        }
-      } catch (error) {
-        console.error('Failed to send message:', error);
-        dropdown.textContent = 'Failed to get suggestion. Please refresh the page.';
+      if (chrome.runtime?.id) { // Check if context is still valid
+        chrome.runtime.sendMessage({
+          action: 'fetchReply',
+          title: videoTitle,
+          parentComment: commentText
+        });
+      } else {
+        console.warn('Extension context invalidated, not sending message for fetchReply in Studio.');
+        dropdown.textContent = 'Error: Extension context lost. Please refresh.';
       }
     }
   });

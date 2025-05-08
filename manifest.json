@@ -18,6 +18,9 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
   "icons": {
     "16": "icon16.png",
     "48": "icon48.png",
@@ -46,9 +49,15 @@
   "web_accessible_resources": [{
     "resources": ["utils.js", "youtube.js", "youtubeStudio.js", ".env"],
     "matches": [
-      "https://www.youtube.com/*", 
+      "https://www.youtube.com/*",
       "https://studio.youtube.com/*",
       "<all_urls>"
     ]
-  }]
+  }],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://studio.youtube.com/*",
+    "https://gemini.googleapis.com/*",
+    "https://*.supabase.co/*"
+  ]
 }
