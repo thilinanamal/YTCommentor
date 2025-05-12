@@ -73,9 +73,14 @@ async function getTranscriptFromPlayerData() {
     if (!videoId) return null;
 
     // Try to access YouTube's ytInitialPlayerResponse object
-    const ytInitialData = window.ytInitialPlayerResponse || 
-                         window.ytInitialData ||
-                         findInitialPlayerData();
+    // Prioritize findInitialPlayerData to get fresh data, especially after client-side navigation.
+    let ytInitialData = findInitialPlayerData();
+    if (!ytInitialData) {
+      // Fallback to global variables if findInitialPlayerData doesn't yield results.
+      // This might be relevant for the very first video load or if findInitialPlayerData fails.
+      // console.warn('getTranscriptFromPlayerData: findInitialPlayerData failed. Falling back to global ytInitialPlayerResponse/ytInitialData.');
+      ytInitialData = window.ytInitialPlayerResponse || window.ytInitialData;
+    }
                          
     if (!ytInitialData) return null;
     
@@ -152,18 +157,52 @@ async function getTranscriptFromPlayerData() {
 
 // Helper function to find ytInitialPlayerResponse in scripts
 function findInitialPlayerData() {
-  for (const script of document.querySelectorAll('script')) {
-    if (script.textContent.includes('ytInitialPlayerResponse')) {
-      const match = script.textContent.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+  const scripts = Array.from(document.querySelectorAll('script'));
+  const currentVideoId = new URLSearchParams(window.location.search).get('v');
+
+  // Iterate in reverse, as newer scripts are often appended
+  for (let i = scripts.length - 1; i >= 0; i--) {
+    const scriptContent = scripts[i].textContent;
+    if (scriptContent.includes('ytInitialPlayerResponse')) {
+      // Adjusted regex to be less greedy and handle potential variations like 'var ytInitialPlayerResponse = ...;' or 'ytInitialPlayerResponse = ...;'
+      // It also looks for common patterns that might follow the JSON object.
+      const match = scriptContent.match(/(?:var\s+)?ytInitialPlayerResponse\s*=\s*(\{.*?\});(?:var meta|ytplayer\.config|playerLegacyDesktopWatchAdsRenderer)/);
       if (match && match[1]) {
         try {
-          return JSON.parse(match[1]);
+          const playerData = JSON.parse(match[1]);
+          // Validate that the playerData is for the current video
+          if (playerData && playerData.videoDetails && playerData.videoDetails.videoId === currentVideoId) {
+            // console.log('findInitialPlayerData: Found validated player data for videoId:', currentVideoId);
+            return playerData; // Found the correct player data
+          }
         } catch (e) {
-          console.error('Failed to parse ytInitialPlayerResponse:', e);
+          // console.warn('findInitialPlayerData: Failed to parse or validate ytInitialPlayerResponse from a script tag (video ID mismatch or parse error).', e);
+          // Continue to the next script tag
         }
       }
     }
   }
+
+  // Fallback: If no validated data is found, try the original simpler approach again.
+  // This is a safety net, in case the validation or reverse search fails for some reason,
+  // or if the videoDetails.videoId path changes.
+  // console.warn('findInitialPlayerData: Could not find validated player data. Falling back to first-match (less reliable after navigation).');
+  for (const script of scripts) { // Iterate forwards for the fallback
+    const scriptContent = script.textContent;
+    if (scriptContent.includes('ytInitialPlayerResponse')) {
+      const match = scriptContent.match(/ytInitialPlayerResponse\s*=\s*({.+?});/); // Original simpler regex
+      if (match && match[1]) {
+        try {
+          // No videoId check here, just return the first one found
+          // console.log('findInitialPlayerData: Fallback returning first matched player data.');
+          return JSON.parse(match[1]);
+        } catch (e) {
+          // console.warn('findInitialPlayerData: Failed to parse ytInitialPlayerResponse (fallback, simple match):', e);
+        }
+      }
+    }
+  }
+  // console.log('findInitialPlayerData: No player data found.');
   return null;
 }
 

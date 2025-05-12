@@ -214,6 +214,17 @@ Promise.all([
 
   // Start observing for elements
   waitForElements();
+
+  // Listen for YouTube navigation events
+  window.addEventListener('yt-navigate-finish', () => {
+    console.log('YTCommentor: yt-navigate-finish event detected. Re-initializing UI components.');
+    // Re-run waitForElements to set up observers and buttons for the new page content.
+    // The functions in youtube.js (getVideoTitle, getVideoTranscript) are designed
+    // to fetch fresh data from the current DOM/window state, so they should
+    // work correctly after navigation for data fetching purposes.
+    waitForElements();
+  });
+
 }).catch(error => {
   console.error('Error loading modules:', error);
 });
