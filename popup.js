@@ -19,6 +19,7 @@ const changeApiKeyButton = document.getElementById('changeApiKey');
 const apiKeyErrorDiv = document.getElementById('apiKeyError');
 const commentDiv = document.getElementById('comment');
 const loadingIndicator = document.getElementById('loadingIndicator');
+const creditsDisplay = document.getElementById('creditsDisplay'); // Element to display credits
 
 let isLoginMode = true;
 
@@ -44,6 +45,9 @@ function showAuthForm() {
   updateAuthFormUI(); // Ensure auth form UI is correct
 }
 
+// Flag to prevent multiple comment requests
+let commentRequestInProgress = false;
+
 function showAppContent() {
   hideLoading();
   if (authForm) authForm.style.display = 'none';
@@ -51,7 +55,13 @@ function showAppContent() {
     if (result.geminiApiKey) {
       if (apiKeyForm) apiKeyForm.style.display = 'none';
       if (commentSection) commentSection.style.display = 'block';
-      requestVideoComment();
+      // Fetch and display user credits
+      fetchUserCredits();
+      
+      // Only request a video comment if one isn't already in progress
+      if (!commentRequestInProgress) {
+        requestVideoComment();
+      }
     } else {
       if (apiKeyForm) apiKeyForm.style.display = 'block';
       if (commentSection) commentSection.style.display = 'none';
@@ -297,10 +307,19 @@ async function handleApiKeySubmission(apiKey) {
 }
 
 function requestVideoComment() {
+  // Set the flag to prevent duplicate requests
+  if (commentRequestInProgress) {
+    console.log('Comment request already in progress, skipping new request');
+    return;
+  }
+  
+  commentRequestInProgress = true;
   commentDiv.textContent = 'Loading...';
+  
   chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
     if (!tabs[0]?.id) {
       commentDiv.textContent = 'Unable to access the current tab.';
+      commentRequestInProgress = false; // Reset flag on error
       return;
     }
     const url = tabs[0].url || '';
@@ -308,6 +327,7 @@ function requestVideoComment() {
     const isYouTubeStudio = url.includes('studio.youtube.com/video/');
     if (!isYouTube && !isYouTubeStudio) {
       commentDiv.textContent = 'Please open a YouTube video or YouTube Studio video page to get comment suggestions.';
+      commentRequestInProgress = false; // Reset flag on error
       return;
     }
     chrome.tabs.sendMessage(tabs[0].id, {action: "ping"}, function(response) {
@@ -320,6 +340,7 @@ function requestVideoComment() {
         }).catch(error => {
           console.error("Script injection failed:", error);
           commentDiv.textContent = 'Error loading extension. Please refresh the page and try again.';
+          commentRequestInProgress = false; // Reset flag on error
         });
       } else {
         requestTitle(tabs[0].id);
@@ -333,6 +354,7 @@ function requestTitle(tabId) {
     if (chrome.runtime.lastError || !response) { // Added !response check
       console.error("Error getting video data:", chrome.runtime.lastError?.message);
       commentDiv.textContent = 'Unable to connect to the page or get video data. Please refresh and try again.';
+      commentRequestInProgress = false; // Reset flag on error
       return;
     }
     if (response?.title) {
@@ -343,8 +365,10 @@ function requestTitle(tabId) {
         title: response.title,
         transcript: response.transcript || response.title
       });
+      // Note: The flag will be reset when we receive the commentGenerated message
     } else {
       commentDiv.textContent = 'Could not find video data. Please make sure you are on a video page.';
+      commentRequestInProgress = false; // Reset flag on error
     }
   });
 }
@@ -352,10 +376,159 @@ function requestTitle(tabId) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'commentGenerated') {
     commentDiv.textContent = message.comment;
+    // Refresh credits display after comment generation
+    fetchUserCredits();
+    // Reset the flag to allow new comment requests
+    commentRequestInProgress = false;
+    console.log('Comment generation complete, flag reset');
+    // Send immediate response since we don't need to wait
+    sendResponse({ success: true });
+  } else if (message.action === 'initializeCredits') {
+    // Background script is requesting initial credit value
+    fetchAndSyncCredits().then(credits => {
+      // Use sendResponse for the async reply instead of sending a new message
+      sendResponse({ success: true, credits: credits });
+    }).catch(error => {
+      console.error('Error initializing credits:', error);
+      sendResponse({ success: false, error: error.message });
+    });
+    // Return true to indicate we'll send a response asynchronously
+    return true;
+  } else if (message.action === 'syncCredits') {
+    // Background script is requesting to sync credits with Supabase
+    syncCreditsWithSupabase(message.credits).then(() => {
+      sendResponse({ success: true });
+    }).catch(error => {
+      console.error('Error syncing credits:', error);
+      sendResponse({ success: false, error: error.message });
+    });
+    // Return true to indicate we'll send a response asynchronously
+    return true;
   }
-  // It's good practice to return true for async sendResponse, though not used here.
-  return true; 
 });
+
+// Function to fetch credits from Supabase and sync them
+async function fetchAndSyncCredits() {
+  try {
+    const supabase = await getSupabase();
+    if (!supabase) {
+      console.error('Supabase client is not initialized.');
+      return 0;
+    }
+
+    // Get current user session
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      console.error('Error getting user session:', sessionError?.message);
+      return 0;
+    }
+
+    const userEmail = session.user.email;
+    
+    // Get user's current credits from Supabase
+    const { data: userData, error: userError } = await supabase
+      .from('user_api_keys')
+      .select('credits')
+      .eq('email', userEmail)
+      .single();
+
+    if (userError) {
+      console.error('Error fetching user credits:', userError.message);
+      return 0;
+    }
+
+    // If credits field doesn't exist or is null, initialize with 1000
+    if (userData.credits === null || userData.credits === undefined) {
+      const { error: updateError } = await supabase
+        .from('user_api_keys')
+        .update({ credits: 1000 })
+        .eq('email', userEmail);
+
+      if (updateError) {
+        console.error('Error initializing user credits:', updateError.message);
+        return 0;
+      }
+      
+      return 1000;
+    }
+    
+    return userData.credits;
+  } catch (error) {
+    console.error('Unexpected error in fetchAndSyncCredits:', error);
+    return 0;
+  }
+}
+
+// Function to sync local credits with Supabase
+async function syncCreditsWithSupabase(localCredits) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const supabase = await getSupabase();
+      if (!supabase) {
+        const error = new Error('Supabase client is not initialized.');
+        console.error(error.message);
+        reject(error);
+        return;
+      }
+
+      // Get current user session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        const error = new Error(`Error getting user session: ${sessionError?.message || 'No session'}`);
+        console.error(error.message);
+        reject(error);
+        return;
+      }
+
+      const userEmail = session.user.email;
+      
+      // First check the current credits in the database
+      const { data: userData, error: fetchError } = await supabase
+        .from('user_api_keys')
+        .select('credits')
+        .eq('email', userEmail)
+        .single();
+        
+      if (fetchError) {
+        const error = new Error(`Error fetching current credits from Supabase: ${fetchError.message}`);
+        console.error(error.message);
+        reject(error);
+        return;
+      }
+      
+      // Compare local credits with database credits
+      // Use the lower value to ensure we don't accidentally increase credits
+      const dbCredits = userData.credits;
+      const finalCreditValue = Math.min(localCredits, dbCredits);
+      
+      console.log(`Credit sync - Local: ${localCredits}, Database: ${dbCredits}, Using: ${finalCreditValue}`);
+      
+      // Update both local storage and database with the lower value
+      chrome.storage.local.set({ userCredits: finalCreditValue });
+      
+      // Update credits in Supabase only if local credits are lower
+      if (localCredits < dbCredits) {
+        const { error: updateError } = await supabase
+          .from('user_api_keys')
+          .update({ credits: finalCreditValue })
+          .eq('email', userEmail);
+
+        if (updateError) {
+          const error = new Error(`Error syncing credits with Supabase: ${updateError.message}`);
+          console.error(error.message);
+          reject(error);
+          return;
+        }
+      }
+      
+      console.log(`Successfully synced credits (${finalCreditValue}) for user ${userEmail}`);
+      resolve(finalCreditValue);
+    } catch (error) {
+      console.error('Unexpected error in syncCreditsWithSupabase:', error);
+      reject(error);
+    }
+  });
+}
 
 async function initializeApp() {
     showLoading(); // Show loading indicator initially
@@ -370,6 +543,7 @@ async function initializeApp() {
                 });
             } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') {
                 checkSession(); // Re-check session and API key status
+                fetchUserCredits(); // Fetch user credits when session is active
             } else if (event === 'USER_DELETED' || event === 'USER_UPDATED') {
                  checkSession();
             }
@@ -377,6 +551,114 @@ async function initializeApp() {
     }
     // Initial check
     checkSession();
+}
+
+// Function to fetch and display user credits
+async function fetchUserCredits() {
+  try {
+    const supabase = await getSupabase();
+    if (!supabase) {
+      console.error('Supabase client is not initialized.');
+      return;
+    }
+
+    // Get current user session
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError || !session) {
+      console.error('Error getting user session:', sessionError?.message);
+      return;
+    }
+
+    const userEmail = session.user.email;
+    
+    // Store user email in local storage for background script
+    chrome.storage.local.set({ userEmail });
+    
+    // Check if we have credits in local storage
+    const localData = await new Promise(resolve => {
+      chrome.storage.local.get(['userCredits', 'lastCreditSync'], result => {
+        resolve(result);
+      });
+    });
+    
+    // If local credits exist and were synced recently, use them
+    const currentTime = Date.now();
+    const syncInterval = 1 * 60 * 1000; // 10 minutes in milliseconds
+    
+    if (localData.userCredits !== undefined && 
+        localData.lastCreditSync && 
+        (currentTime - localData.lastCreditSync) < syncInterval) {
+      // Use local credits
+      if (creditsDisplay) {
+        creditsDisplay.textContent = `Credits: ${localData.userCredits}`;
+      }
+      return;
+    }
+    
+    // Otherwise fetch from Supabase
+    const { data: userData, error: userError } = await supabase
+      .from('user_api_keys')
+      .select('credits')
+      .eq('email', userEmail)
+      .single();
+
+    if (userError) {
+      console.error('Error fetching user credits:', userError.message);
+      return;
+    }
+
+    let creditAmount;
+    
+    // If credits field doesn't exist or is null, initialize with 1000
+    if (userData.credits === null || userData.credits === undefined) {
+      creditAmount = 1000;
+      const { error: updateError } = await supabase
+        .from('user_api_keys')
+        .update({ credits: creditAmount })
+        .eq('email', userEmail);
+
+      if (updateError) {
+        console.error('Error initializing user credits:', updateError.message);
+        return;
+      }
+    } else {
+      // Check if we have local credits to compare with
+      if (localData.userCredits !== undefined) {
+        // Use the lower of the two values to ensure we don't increase credits accidentally
+        creditAmount = Math.min(userData.credits, localData.userCredits);
+        console.log(`Credit fetch - Local: ${localData.userCredits}, Database: ${userData.credits}, Using: ${creditAmount}`);
+        
+        // If local credits are lower, update the database to match
+        if (localData.userCredits < userData.credits) {
+          const { error: updateError } = await supabase
+            .from('user_api_keys')
+            .update({ credits: creditAmount })
+            .eq('email', userEmail);
+
+          if (updateError) {
+            console.error('Error updating database credits to match local:', updateError.message);
+          } else {
+            console.log(`Updated database credits to match lower local value: ${creditAmount}`);
+          }
+        }
+      } else {
+        creditAmount = userData.credits;
+      }
+    }
+    
+    // Update local storage with the final credit amount
+    chrome.storage.local.set({ 
+      userCredits: creditAmount,
+      lastCreditSync: currentTime
+    });
+    
+    // Update the UI
+    if (creditsDisplay) {
+      creditsDisplay.textContent = `Credits: ${creditAmount}`;
+    }
+  } catch (error) {
+    console.error('Unexpected error in fetchUserCredits:', error);
+  }
 }
 
 // Initialize

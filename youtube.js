@@ -13,8 +13,14 @@ export function getCommentText(commentElement) {
 export function getVideoTranscript() {
   return new Promise(async (resolve) => {
     try {
+      // Add a timeout for the entire transcript fetching process
+      const timeoutPromise = new Promise(r => setTimeout(() => {
+        console.log('Transcript fetching timed out');
+        r(null);
+      }, 8000)); // 8 second total timeout
+      
       // First, check if we can get the transcript from the UI
-      const transcriptText = await getTranscriptFromUI();
+      const transcriptText = await Promise.race([getTranscriptFromUI(), timeoutPromise]);
       if (transcriptText) {
         console.log('Got transcript from UI');
         resolve(transcriptText);
@@ -22,7 +28,7 @@ export function getVideoTranscript() {
       }
 
       // If UI method fails, try to get it from network data
-      const transcriptFromPlayer = await getTranscriptFromPlayerData();
+      const transcriptFromPlayer = await Promise.race([getTranscriptFromPlayerData(), timeoutPromise]);
       if (transcriptFromPlayer) {
         console.log('Got transcript from player data');
         resolve(transcriptFromPlayer);
@@ -30,7 +36,7 @@ export function getVideoTranscript() {
       }
 
       // Final fallback - try to get it from the transcript button
-      const transcriptFromButton = await getTranscriptByClickingButton();
+      const transcriptFromButton = await Promise.race([getTranscriptByClickingButton(), timeoutPromise]);
       if (transcriptFromButton) {
         console.log('Got transcript from button click');
         resolve(transcriptFromButton);
@@ -40,11 +46,11 @@ export function getVideoTranscript() {
       // If all methods fail, fall back to title
       const title = getVideoTitle();
       console.log('Failed to get transcript, falling back to title');
-      resolve(title ? `Video title: ${title}` : 'No transcript available');
+      resolve(title ? `Video title: ${title}` : 'Using video context to generate a comment');
     } catch (error) {
       console.error('Error getting transcript:', error);
       const title = getVideoTitle();
-      resolve(title ? `Video title: ${title}` : 'No transcript available');
+      resolve(title ? `Video title: ${title}` : 'Using video context to generate a comment');
     }
   });
 }
@@ -112,21 +118,82 @@ async function getTranscriptFromPlayerData() {
       return null;
     }
     
-    const transcriptUrl = `${captionTrack.baseUrl}&fmt=json3`;
-    const response = await fetch(transcriptUrl);
-
-    if (!response.ok) {
-      console.error(`Failed to fetch transcript. URL: ${transcriptUrl}, Status: ${response.status} ${response.statusText}`);
-      return null;
-    }
-
-    const textData = await response.text();
-    if (!textData) {
-      console.error(`Empty response body from transcript URL: ${transcriptUrl}`);
-      return null;
-    }
+    // Add a timeout to the fetch request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
     
-    const data = JSON.parse(textData); // Explicitly parse after getting text
+    let transcriptUrl;
+    try {
+      transcriptUrl = `${captionTrack.baseUrl}&fmt=json3`;
+      const response = await fetch(transcriptUrl, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        console.error(`Failed to fetch transcript. URL: ${transcriptUrl}, Status: ${response.status} ${response.statusText}`);
+        return null;
+      }
+      
+      // Get the response as text first to avoid body stream already read errors
+      let data;
+      try {
+        // Clone the response before consuming it
+        const responseClone = response.clone();
+        const textData = await response.text();
+        
+        // Instead of treating empty response as an error, try to continue with fallbacks
+        if (!textData || textData.trim() === '') {
+          console.log(`Empty response from transcript URL: ${transcriptUrl}, trying fallbacks`);
+          // Return empty string instead of null to indicate we should try other methods
+          return '';
+        }
+        
+        try {
+          // Try to parse the text as JSON
+          data = JSON.parse(textData);
+        } catch (parseError) {
+          console.error(`Failed to parse transcript data: ${parseError.message}`);
+          // As a fallback, try to get JSON directly from the cloned response
+          try {
+            data = await responseClone.json();
+          } catch (jsonError) {
+            console.error(`Both text parsing and JSON methods failed: ${jsonError.message}`);
+            return null;
+          }
+        }
+      } catch (responseError) {
+        console.error(`Error processing response: ${responseError.message}`);
+        return null;
+      }
+      
+      // Process the data if we have it
+      if (data && data.events) {
+        // Extract text from transcript data
+        return data.events
+          .filter(event => event.segs)
+          .map(event => 
+            event.segs
+              .map(seg => seg.utf8)
+              .join('')
+          )
+          .join(' ')
+          .replace(/\\n/g, ' ') // Replace literal \n
+          .replace(/\s+/g, ' '); // Condense multiple spaces
+      } else {
+        console.log('Parsed transcript data does not contain events property or is null.');
+        return null;
+      }
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      console.error(`Fetch error for transcript: ${fetchError.message}`);
+      return null;
+    }
     
     if (data && data.events) {
       // Extract text from transcript data
@@ -146,13 +213,20 @@ async function getTranscriptFromPlayerData() {
     }
   } catch (error) {
     // Log additional context if available
-    let errorContext = '';
-    if (typeof transcriptUrl !== 'undefined') errorContext += ` URL: ${transcriptUrl}`;
-    // Avoid logging potentially very large textData directly, but maybe its start
-    // if (typeof textData !== 'undefined') errorContext += ` | Received text (start): ${textData.substring(0, 100)}`;
-    console.error(`Error in getTranscriptFromPlayerData:${errorContext}`, error);
+    console.error(`Error in getTranscriptFromPlayerData:`, error);
+    // If we get a timeout or network error, try an alternative method
+    try {
+      // Fallback to title as a last resort
+      const title = getVideoTitle();
+      if (title) {
+        console.log('Transcript fetch failed, using video title as fallback');
+        return `Video title: ${title}`;
+      }
+    } catch (fallbackError) {
+      console.error('Even fallback to title failed:', fallbackError);
+    }
   }
-  return null;
+  return 'Unable to retrieve transcript or title. Using AI to generate a general comment.';
 }
 
 // Helper function to find ytInitialPlayerResponse in scripts
